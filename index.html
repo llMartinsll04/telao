@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telão</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%235865f2'/%3E%3Crect x='7' y='9' width='18' height='12' rx='2' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='M12 25h8' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- Barra de servidores -->
+    <nav class="rail" aria-label="Servidores">
+      <div class="rail-icon active" title="Telão">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </div>
+      <div class="rail-sep"></div>
+    </nav>
+
+    <!-- Lista de canais -->
+    <aside class="sidebar" id="sidebar">
+      <header class="sidebar-head">
+        <span>Telão</span>
+        <button class="icon-btn only-mobile" id="closeSidebar" aria-label="Fechar lista">✕</button>
+      </header>
+      <div class="channels">
+        <div class="section-title">CANAIS DE TELA</div>
+        <ul id="roomList" class="room-list"></ul>
+        <form id="newRoomForm" class="new-room" autocomplete="off">
+          <input id="newRoomInput" maxlength="24" placeholder="+ criar sala" aria-label="Nome da nova sala">
+        </form>
+      </div>
+      <footer class="user-panel">
+        <div class="user-info">
+          <div class="avatar sm" id="selfAvatar"></div>
+          <div class="user-text">
+            <div class="user-name" id="selfName">—</div>
+            <div class="user-status" id="selfStatus">desconectado</div>
+          </div>
+        </div>
+        <button class="icon-btn" id="logoutBtn" title="Trocar conta" aria-label="Trocar conta">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg>
+        </button>
+      </footer>
+    </aside>
+
+    <!-- Área principal -->
+    <main class="main">
+      <header class="main-head">
+        <button class="icon-btn only-mobile" id="openSidebar" aria-label="Abrir canais">☰</button>
+        <svg class="hash" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/></svg>
+        <h1 id="roomTitle">Escolha uma sala</h1>
+        <span class="head-meta" id="roomMeta"></span>
+        <div class="head-actions" id="headActions" hidden>
+          <button class="head-btn" id="inviteBtn" title="Copiar convite com link e código">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+            <span>Convidar</span>
+          </button>
+          <button class="head-btn icon-only" id="soundBtn" title="Sons de aviso" aria-label="Sons de aviso" aria-pressed="true">🔔</button>
+          <button class="head-btn" id="chatBtn" title="Mostrar ou esconder o chat" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>Chat</span>
+            <b class="unread" id="unread" hidden>0</b>
+          </button>
+        </div>
+      </header>
+
+      <div class="body">
+        <section class="stage" id="stage">
+          <div class="empty" id="emptyState">
+            <div class="empty-art">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <h2>Ninguém aqui ainda</h2>
+            <p>Entre numa sala na lista ao lado e clique em <b>Compartilhar tela</b>.</p>
+          </div>
+          <div class="grid" id="grid"></div>
+        </section>
+
+        <aside class="chat" id="chat" hidden aria-label="Chat da sala">
+          <header class="chat-head">
+            <span id="chatTitle">Chat</span>
+            <button class="icon-btn only-mobile" id="closeChat" aria-label="Fechar chat">✕</button>
+          </header>
+          <ol class="chat-list" id="chatList" aria-live="polite"></ol>
+          <form class="chat-form" id="chatForm" autocomplete="off">
+            <input id="chatInput" maxlength="500" placeholder="Conversar na sala" aria-label="Mensagem">
+          </form>
+        </aside>
+      </div>
+
+      <footer class="controls" id="controls" hidden>
+        <select id="source" aria-label="O que transmitir" title="O que transmitir">
+          <option value="screen">🖥️ Tela ou janela</option>
+          <option value="game">🎮 Jogo (mais fluido)</option>
+          <option value="rubinot">⚔️ RubinOT / Tibia (texto nítido)</option>
+          <option value="camera">📷 Câmera / placa de captura</option>
+        </select>
+        <select id="camera" aria-label="Qual câmera" title="Qual câmera" hidden></select>
+        <select id="quality" aria-label="Qualidade da transmissão" title="Qualidade">
+          <option value="720p30">720p · 30 fps</option>
+          <option value="1080p30" selected>1080p · 30 fps</option>
+          <option value="720p60">720p · 60 fps</option>
+          <option value="1080p60">1080p · 60 fps</option>
+          <option value="1440p60">1440p · 60 fps</option>
+        </select>
+        <button class="ctrl share" id="shareBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M12 14V8M9 11l3-3 3 3"/></svg>
+          <span>Compartilhar tela</span>
+        </button>
+        <button class="activity-hint" id="activityHint" type="button" title="Abre o Telão no seu navegador">Para transmitir, abra o Telão no navegador <span aria-hidden="true">↗</span></button>
+        <button class="ctrl leave" id="leaveBtn" title="Sair da sala">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg>
+          <span>Sair da sala</span>
+        </button>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Entrada -->
+  <div class="modal-back" id="loginModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <h2 id="loginTitle">Bem-vindo ao Telão</h2>
+      <p class="muted">Compartilhe sua tela com os amigos, do jeito que você já conhece.</p>
+      <a class="btn discord" id="discordLogin" href="/auth/discord" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6a16 16 0 0 0-4-1l-.5 1a14 14 0 0 0-5 0L9 5a16 16 0 0 0-4 1C2.5 10 2 13.5 2.2 17a16 16 0 0 0 4.8 2.4l1-1.6-1.6-.8.4-.3a11 11 0 0 0 10.4 0l.4.3-1.6.8 1 1.6A16 16 0 0 0 21.8 17c.3-4-.6-7.5-2.8-11zM9 14.5c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.8.9 1.7 2-.7 2-1.7 2zm6 0c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.8.9 1.7 2-.7 2-1.7 2z"/></svg>
+        Entrar com Discord
+      </a>
+      <div class="divider" id="orDivider" hidden><span>ou</span></div>
+      <form id="guestForm" autocomplete="off">
+        <label for="guestName">Seu nome</label>
+        <input id="guestName" maxlength="32" placeholder="Como os amigos te chamam">
+        <div id="codeWrap" hidden>
+          <label for="accessCode">Código de acesso</label>
+          <input id="accessCode" type="password" maxlength="64" placeholder="Pedido por quem criou o servidor">
+        </div>
+        <button class="btn primary" type="submit" id="guestBtn">Continuar</button>
+      </form>
+      <p class="error" id="loginError" role="alert"></p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/trystero.js"></script>
+  <script src="p2p.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
