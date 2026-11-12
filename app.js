@@ -462,7 +462,8 @@
         listCameras();
       } else {
         if (mode === 'rubinot') video.displaySurface = 'window';
-        if (mode === 'game') video.displaySurface = 'monitor';
+        // Tela inteira primeiro: janelas com aceleração de vídeo (Discord, jogos) podem sair verdes ou pretas.
+        if (mode === 'game' || mode === 'screen') video.displaySurface = 'monitor';
         stream = await navigator.mediaDevices.getDisplayMedia({
           video,
           audio: rawAudio,
@@ -494,6 +495,9 @@
     if (track) {
       track.contentHint = mode === 'rubinot' ? 'text' : fluid ? 'motion' : 'detail';
       track.addEventListener('ended', stopShare);
+      if (mode !== 'rubinot' && mode !== 'camera' && track.getSettings?.().displaySurface === 'window') {
+        setTimeout(() => toast('Compartilhando uma janela. Se aparecer verde ou preto para os amigos, escolha Tela inteira.'), 400);
+      }
     }
     state.localStream = stream;
     state.localQuality = q;
