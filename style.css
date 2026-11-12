@@ -139,10 +139,12 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
 .tile {
   position: relative; background: var(--bg-tile); border-radius: var(--radius); overflow: hidden;
-  display: grid; place-items: center; min-height: 0; outline: 2px solid transparent; outline-offset: -2px;
+  display: grid; place-items: center; min-width: 0; min-height: 0; outline: 2px solid transparent; outline-offset: -2px;
 }
 .tile.is-live { outline-color: rgba(237,66,69,.35); }
-.tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+/* Absoluto: o vídeo nunca fica maior que o quadro (antes a parte de baixo da tela era cortada). */
+.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.tile .label, .tile .tools, .tile .viewers, .tile .net, .tile .center { z-index: 1; }
 .tile .center { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px; text-align: center; }
 .tile .label {
   position: absolute; left: 8px; bottom: 8px; display: flex; align-items: center; gap: 6px; max-width: calc(100% - 16px);
@@ -160,6 +162,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .tool:hover { background: rgba(0,0,0,.85); }
 .tool input[type=range] { width: 80px; accent-color: var(--brand); }
 .viewers { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.7); border-radius: 4px; padding: 4px 10px; font-size: 14px; font-weight: 600; }
+/* Miniatura: "1 assistindo" vai para cima para não encavalar com "AO VIVO nome". */
+.grid.focus .strip .tile .viewers { top: 6px; bottom: auto; right: 6px; padding: 2px 6px; font-size: 12px; }
+.grid.focus .strip .tile .label { max-width: calc(100% - 12px); }
 .watching-tag { color: #43b581; }
 .watching-tag.idle { color: var(--text-2); }
 .tile .hint { color: var(--text-2); font-size: 13px; }
@@ -241,7 +246,9 @@ html.activity #logoutBtn, html.activity #discordLogin, html.activity #orDivider 
   }
   .sidebar.open { transform: none; box-shadow: 4px 0 24px rgba(0,0,0,.5); }
   .grid { padding: 12px 16px; grid-template-columns: 1fr; }
-  .tile .tools { opacity: 1; }
+  /* No toque as ferramentas aparecem por 3 s ao tocar no vídeo e somem para não tapar a imagem. */
+  .tile .tools { opacity: 0; pointer-events: none; }
+  .tile.show-tools .tools, .tile:focus-within .tools { opacity: 1; pointer-events: auto; }
   .tool { height: 44px; min-width: 44px; }
   .icon-btn { width: 44px; height: 44px; }
   .controls { gap: 8px; padding: 10px 16px; }
@@ -262,6 +269,12 @@ html.activity #logoutBtn, html.activity #discordLogin, html.activity #orDivider 
   .grid.focus .strip .avatar.lg { width: 40px; height: 40px; font-size: 17px; }
   .grid.focus .strip .center { padding-bottom: 36px; }
   .grid:not(.focus) .btn.watch { height: 44px; }
+}
+
+/* Celular deitado / janela baixa: com um vídeo em foco, ele usa a altura toda (os outros seguem na lista de canais). */
+@media (max-height: 500px) {
+  .grid.focus { grid-template-rows: 1fr; padding: 8px 12px; }
+  .grid.focus .strip { display: none; }
 }
 
 /* ---------- v2: cabeçalho, chat, fontes, qualidade ---------- */
@@ -341,3 +354,8 @@ html.activity #logoutBtn, html.activity #discordLogin, html.activity #orDivider 
 .icon-btn, .head-btn, .tool, .ctrl, .room { -webkit-tap-highlight-color: transparent; }
 .icon-btn:focus-visible, .head-btn:focus-visible, .ctrl:focus-visible, .room:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 @media (hover: none) { .icon-btn:hover { background: none; } }
+
+/* Janela estreita no computador (com mouse): ferramentas continuam clicáveis ao passar o mouse. */
+@media (max-width: 760px) and (hover: hover) {
+  .tile:hover .tools { opacity: 1; pointer-events: auto; }
+}

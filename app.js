@@ -100,6 +100,9 @@
   let toastTimer;
   function toast(msg) {
     el.toast.textContent = msg;
+    // Sempre logo acima da barra de botões, para não cobrir botões nem ferramentas do vídeo.
+    const bar = el.controls && !el.controls.hidden ? el.controls.getBoundingClientRect() : null;
+    el.toast.style.bottom = bar && bar.height ? `${Math.round(window.innerHeight - bar.top + 12)}px` : '';
     el.toast.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), 3200);
@@ -1494,6 +1497,15 @@
     const url = state.room ? `${base}/?sala=${encodeURIComponent(state.room)}` : base;
     if (sdk) sdk.commands.openExternalLink({ url }).catch(() => toast(`Abra no navegador: ${base}`));
     else window.open(url, '_blank', 'noopener');
+  });
+
+  // Celular: tocar no vídeo mostra as ferramentas (volume, ampliar, tela cheia) por 3 s.
+  el.grid.addEventListener('pointerdown', (e) => {
+    const tile = e.target.closest?.('.tile');
+    if (!tile || !tile.querySelector('.tools')) return;
+    tile.classList.add('show-tools');
+    clearTimeout(tile._toolsTimer);
+    tile._toolsTimer = setTimeout(() => tile.classList.remove('show-tools'), 3000);
   });
 
   el.inviteBtn.addEventListener('click', async () => {
