@@ -118,6 +118,11 @@
       this.roomName = room;
       this.members.clear();
       const self = await r.getSelf();
+      // Trocou de sala ou saiu enquanto esta entrada ainda conectava.
+      if (this.room !== r || seq !== this.joinSeq) {
+        if (this.room !== r) r.leave().catch(() => {});
+        return { error: 'Troca de sala cancelada.' };
+      }
       this.me = { id: self.peerId, name: clean, avatar: null, discordId: null, streaming: false };
 
       const mk = (n) => r.makeAction(n);
