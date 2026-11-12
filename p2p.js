@@ -173,6 +173,9 @@
         if (text) this.fire('chat', { id: randId(), from: peerId, name: m.name, avatar: null, text, ts: Date.now() });
       });
 
+      // Sozinho depois de um tempo: avisa uma vez com o nome exato da sala.
+      setTimeout(() => { if (mine() && this.members.size === 0) this.fire('notice', { kind: 'alone' }); }, 25000);
+
       const list = savedRooms().filter((x) => x !== room);
       saveRooms([room, ...list]);
       setTimeout(() => this.sendRoomState(), 0);

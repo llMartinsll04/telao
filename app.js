@@ -79,7 +79,9 @@
     if (emptyText) emptyText.textContent = 'Entre numa sala na lista ao lado para assistir.';
   } else if (window.TELAO_STATIC_CONFIG) {
     const emptyText = document.querySelector('#emptyState p');
-    if (emptyText) emptyText.innerHTML = 'Crie uma sala em <b>+ criar sala</b>, clique em <b>Convidar</b> e mande o link aos amigos.';
+    if (emptyText) emptyText.innerHTML = 'Só <b>uma</b> pessoa cria a sala e clica em <b>Convidar</b>. Os outros abrem esse convite (ou colam ele no campo ao lado).';
+    const input = document.getElementById('newRoomInput');
+    if (input) { input.placeholder = '+ criar sala ou colar convite'; input.maxLength = 200; }
   }
 
   // Pasta onde o Telão está publicado ("/" no servidor, "/telao/" no GitHub Pages).
@@ -360,10 +362,15 @@
 
   el.newRoomForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    let room = slug(el.newRoomInput.value);
+    const typed = el.newRoomInput.value.trim();
+    // Colou o convite inteiro? Entra exatamente na sala dele.
+    const fromLink = /[?&]sala=([a-z0-9-]{1,24})/i.exec(typed)?.[1];
+    let room = slug(fromLink || typed);
     if (!room) { toast('Use letras, números ou hífen.'); return; }
-    // Sem servidor, o nome da sala é o que protege a entrada: ganha um final aleatório.
-    if (state.config?.p2p) {
+    // Sem servidor, o nome da sala é o que protege a entrada: sala NOVA ganha um
+    // final aleatório. Convite colado ou nome já com final (ex. jogos-3fa9c1) entra igual.
+    const exact = fromLink || /-[0-9a-f]{6}$/.test(room);
+    if (state.config?.p2p && !exact) {
       const tag = Array.from(crypto.getRandomValues(new Uint8Array(3)), (b) => b.toString(16).padStart(2, '0')).join('');
       room = `${room.slice(0, 17).replace(/-+$/, '')}-${tag}`;
     }
@@ -1402,6 +1409,10 @@
 
   socket.on('notice', ({ kind, name }) => {
     if (kind === 'slow') { toast('Calma! Muitas mensagens seguidas.'); return; }
+    if (kind === 'alone' && state.room) {
+      addSystem('leave', `Ninguém conectou ainda em #${state.room}. Seu amigo precisa abrir o SEU convite (botão Convidar) ou colar o nome exato "${state.room}" em "+ criar sala ou colar convite". Se o nome já é o mesmo e mesmo assim não se veem, a internet de um de vocês está bloqueando a conexão direta (teste com outra rede, ex. roteador de casa em vez de 4G).`);
+      return;
+    }
     if (!state.room) return;
     if (kind === 'join') { addSystem('join', `${name} entrou na sala`); beep('join'); }
     else if (kind === 'leave') { addSystem('leave', `${name} saiu da sala`); beep('leave'); }
