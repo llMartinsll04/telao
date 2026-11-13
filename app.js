@@ -41,6 +41,7 @@
     relayViewers: new Set(), // viewerIds que me assistem pelo servidor (sem WebRTC)
     inRelay: new Map(), // streamerId -> vídeo que recebo pelo servidor
     watching: new Set(), // streamerIds que pedi para assistir
+    resumeWatch: new Map(), // streamerId -> até quando voltar a assistir sozinho se a ligação cair
     focus: null, // id do bloco ampliado
     volumes: new Map(),
     iceServers: null, // recebidos ao entrar na sala (podem incluir TURN)
@@ -694,6 +695,7 @@
   }
 
   function unwatch(streamerId) {
+    state.resumeWatch.delete(streamerId);
     state.watching.delete(streamerId);
     closeIn(streamerId);
     socket.emit('unwatch', { streamerId });
@@ -950,6 +952,12 @@
       if (!live.has(id)) { state.watching.delete(id); closeIn(id); if (state.focus === id) state.focus = null; }
     }
     if (state.focus && state.focus !== state.selfId && !live.has(state.focus)) state.focus = null;
+    // A ligação caiu enquanto eu assistia e a pessoa voltou: volta a assistir sozinho.
+    const now = Date.now();
+    for (const [id, until] of [...state.resumeWatch]) {
+      if (until < now) { state.resumeWatch.delete(id); continue; }
+      if (live.has(id) && !state.watching.has(id)) { state.resumeWatch.delete(id); watch(id); }
+    }
     renderAll();
   });
 
@@ -985,6 +993,7 @@
   });
 
   socket.on('peer-left', ({ id }) => {
+    if (state.watching.has(id)) state.resumeWatch.set(id, Date.now() + 60000);
     state.outPeers.get(id)?.close();
     state.outPeers.delete(id);
     dropRelayViewerLocal(id);
@@ -1015,6 +1024,7 @@
     if (!keepLocal && state.localStream) stopShare();
     for (const id of [...state.inPeers.keys(), ...state.inRelay.keys()]) closeIn(id);
     state.watching.clear();
+    state.resumeWatch.clear();
   }
 
   const isViewer = (id) => state.outPeers.has(id) || state.relayViewers.has(id);
