@@ -42,6 +42,7 @@
     inRelay: new Map(), // streamerId -> vídeo que recebo pelo servidor
     watching: new Set(), // streamerIds que pedi para assistir
     resumeWatch: new Map(), // streamerId -> até quando voltar a assistir sozinho se a ligação cair
+    watchTimers: new Map(), // streamerId -> verificação de "o vídeo conectou?"
     focus: null, // id do bloco ampliado
     volumes: new Map(),
     iceServers: null, // recebidos ao entrar na sala (podem incluir TURN)
@@ -109,11 +110,56 @@
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), 3200);
   }
 
-  function colorFor(name) {
-    const palette = ['#5865f2', '#3ba55c', '#faa61a', '#ed4245', '#eb459e', '#00a8fc', '#9b59b6'];
-    let h = 0;
-    for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    return palette[h % palette.length];
+  function nameHash(name, seed) {
+    let h = seed >>> 0;
+    for (const c of name.trim().toLowerCase()) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0;
+    return h;
+  }
+  // Fundos frios/escuros: os bichos são quase todos quentes (laranja, amarelo, marrom),
+  // então um fundo laranja apagava a raposa e o tigre.
+  const AVATAR_COLORS = ['#5865f2', '#3ba55c', '#00a8fc', '#9b59b6', '#1abc9c', '#eb459e', '#2f3a8f', '#0f766e', '#7c3aed', '#be185d'];
+  // Fundo do mesmo tom do bicho apaga o desenho: pula para a próxima cor permitida.
+  const PET_AVOID = {
+    '🐸': ['#3ba55c', '#1abc9c', '#0f766e'],
+    '🐷': ['#eb459e', '#be185d'],
+    '🐙': ['#eb459e', '#be185d', '#9b59b6', '#7c3aed'],
+    '🐵': ['#9b59b6'], '🐻': ['#9b59b6'], '🐹': ['#9b59b6'],
+    '🦄': ['#eb459e', '#9b59b6'],
+  };
+  // Mesma cor, clareada para texto (nome no chat): todas com 5:1 ou mais sobre o fundo do chat.
+  const NAME_COLORS = { '#5865f2': '#9aa4ff', '#3ba55c': '#57d17a', '#00a8fc': '#4cc4ff', '#9b59b6': '#d39ef0', '#1abc9c': '#3fd8b6',
+    '#eb459e': '#f48ac4', '#2f3a8f': '#8c9eff', '#0f766e': '#2dd4bf', '#7c3aed': '#b79cff', '#be185d': '#f472b6' };
+  function colorFor(name, pet) {
+    const avoid = PET_AVOID[pet] || [];
+    let i = nameHash(name, 2166136261) % AVATAR_COLORS.length;
+    for (let k = 0; k < AVATAR_COLORS.length && avoid.includes(AVATAR_COLORS[i]); k++) i = (i + 1) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[i];
+  }
+  // Bichinho de cada pessoa: o mesmo nome sempre ganha o mesmo bicho.
+  const AVATAR_PETS = ['🐱', '🐶', '🦊', '🐼', '🐸', '🐰', '🐨', '🐯', '🐧', '🐹', '🦄', '🐵', '🐻', '🐮', '🐷', '🐙'];
+  function petFor(name) {
+    return AVATAR_PETS[nameHash(name, 40503) % AVATAR_PETS.length];
+  }
+  // Na mesma sala ninguém repete bicho: em ordem de id (igual para todos), quem pegar um
+  // bicho já usado fica com o próximo livre.
+  let petCache = { key: '', map: new Map() };
+  function roomPets() {
+    const list = [...state.members].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const key = list.map((m) => `${m.id}:${m.name}`).join('|');
+    if (key === petCache.key) return petCache.map;
+    const map = new Map();
+    const used = new Set();
+    for (const m of list) {
+      let i = nameHash(m.name || '?', 40503) % AVATAR_PETS.length;
+      for (let k = 0; k < AVATAR_PETS.length && used.has(AVATAR_PETS[i]); k++) i = (i + 1) % AVATAR_PETS.length;
+      used.add(AVATAR_PETS[i]);
+      map.set(m.id, AVATAR_PETS[i]);
+    }
+    petCache = { key, map };
+    return map;
+  }
+  function petOf(member) {
+    return (member.id && roomPets().get(member.id)) || petFor(member.name || '?');
   }
 
   function avatarEl(member, size) {
@@ -122,8 +168,11 @@
     if (member.avatar) {
       a.style.backgroundImage = `url("${member.avatar.replace(/"/g, '')}")`;
     } else {
-      a.style.backgroundColor = colorFor(member.name || '?');
-      a.textContent = (member.name || '?').trim().charAt(0).toUpperCase();
+      const pet = petOf(member);
+      a.style.backgroundColor = colorFor(member.name || '?', pet);
+      a.classList.add('pet');
+      a.textContent = pet;
+      a.title = member.name || '';
     }
     return a;
   }
@@ -294,7 +343,7 @@
 
   function renderSelf() {
     const id = state.identity || { name: '—' };
-    el.selfAvatar.replaceWith((el.selfAvatar = avatarEl(id, 'sm')));
+    el.selfAvatar.replaceWith((el.selfAvatar = avatarEl({ ...id, id: state.room ? state.selfId : null }, 'sm')));
     el.selfAvatar.id = 'selfAvatar';
     el.selfName.textContent = id.name;
     if (!socket.connected) {
@@ -691,10 +740,33 @@
     state.watching.add(streamerId);
     state.focus = streamerId;
     socket.emit('watch', { streamerId, relay });
+    if (!relay) checkWatch(streamerId, 0);
     renderAll();
   }
 
+  // Se o vídeo não conectar em alguns segundos, pede de novo; depois de 3 tentativas avisa.
+  const WATCH_CHECK_MS = 12000;
+  function checkWatch(streamerId, tries) {
+    clearTimeout(state.watchTimers.get(streamerId));
+    state.watchTimers.set(streamerId, setTimeout(() => {
+      state.watchTimers.delete(streamerId);
+      if (!state.watching.has(streamerId)) return;
+      const pc = state.inPeers.get(streamerId)?.pc;
+      if (pc && ['connected', 'completed'].includes(pc.connectionState)) return;
+      const name = state.members.find((m) => m.id === streamerId)?.name || 'a pessoa';
+      if (tries >= 2) {
+        toast(`Não deu para conectar à tela de ${name}. Peça para ${name} parar e transmitir de novo, ou atualize a página.`);
+        return;
+      }
+      if (tries === 0) toast(`Conectando à tela de ${name}…`);
+      socket.emit('watch', { streamerId, relay: false });
+      checkWatch(streamerId, tries + 1);
+    }, WATCH_CHECK_MS));
+  }
+
   function unwatch(streamerId) {
+    clearTimeout(state.watchTimers.get(streamerId));
+    state.watchTimers.delete(streamerId);
     state.resumeWatch.delete(streamerId);
     state.watching.delete(streamerId);
     closeIn(streamerId);
@@ -1340,7 +1412,7 @@
     li.className = `msg${cont ? ' cont' : ''}`;
     li.dataset.from = msg.from;
     li.dataset.ts = msg.ts;
-    const av = avatarEl({ name: msg.name, avatar: msg.avatar }, 'sm');
+    const av = avatarEl({ id: msg.from, name: msg.name, avatar: msg.avatar }, 'sm');
     const body = document.createElement('div');
     body.className = 'body-txt';
     if (!cont) {
@@ -1348,7 +1420,7 @@
       const who = document.createElement('span');
       who.className = 'who';
       who.textContent = msg.name;
-      who.style.color = colorFor(msg.name);
+      who.style.color = NAME_COLORS[colorFor(msg.name, petOf({ id: msg.from, name: msg.name }))] || '';
       const when = document.createElement('span');
       when.className = 'when';
       when.textContent = fmtTime(msg.ts);

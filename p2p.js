@@ -6,7 +6,18 @@
 
   const APP_ID = 'telao.llmartinsll04.github.io/v1';
   const ROOM_RE = /^[a-z0-9-]{1,24}$/;
-  const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+  // Retransmissor (TURN) num PC Lino da casa do Victor: usado só quando a conexão direta
+  // falha (redes com IP compartilhado, 4G). A senha fica pública no site de propósito; o
+  // servidor só repassa UDP, tem limite de velocidade e bloqueia a rede de casa.
+  // Atualizar aqui se o IP público mudar (tools/turn-3060.sh).
+  const TURN_HOST = '45.174.30.137';
+  const TURN_LAN = '192.168.0.12'; // mesmo servidor visto de dentro de casa
+  const TURN_AUTH = { username: 'telao', credential: 'yvlXKgt5wouu57Tcs79nAXNG' };
+  const ICE = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+    { urls: [`turn:${TURN_HOST}:3478?transport=udp`, `turn:${TURN_HOST}:3478?transport=tcp`], ...TURN_AUTH },
+    { urls: [`turn:${TURN_LAN}:3478?transport=udp`], ...TURN_AUTH },
+  ];
   const SAVED_KEY = 'telao_salas';
   const MAX_SAVED = 20;
   const MAX_MEMBERS = 12;
@@ -62,6 +73,7 @@
       this.joinSeq = 0;
       this.peerSees = new Map(); // peerId -> ids que esse amigo vê
       this.pendingWatch = new Map(); // streamerId -> até quando reenviar o pedido de assistir
+      this.earlyWatch = new Map(); // viewerId -> pedido de assistir que chegou antes do "olá"
       this.beat = null;
       this.onVisible = null;
       this.reopens = 0; // quantas vezes o vigia reconectou (para os testes)
@@ -181,6 +193,11 @@
           this.pendingWatch.delete(peerId);
           if (pend >= Date.now()) a.watch.send({}, { target: peerId }).catch(() => {});
         }
+        const early = this.earlyWatch.get(peerId);
+        if (early) {
+          this.earlyWatch.delete(peerId);
+          if (early >= Date.now() && this.me?.streaming) setTimeout(() => this.fire('viewer-request', { viewerId: peerId, name, relay: false }), 0);
+        }
         if (prev && prev.name === name && prev.streaming === streaming) return; // só sinal de vida
         if (!prev) this.fire('notice', { kind: 'join', name });
         if (streaming && !prev?.streaming) this.fire('notice', { kind: 'live', name, id: peerId });
@@ -191,8 +208,11 @@
         if (mine() && this.members.has(peerId) && data && typeof data === 'object') this.fire('signal', { from: peerId, data });
       });
       a.watch.onMessage((_d, { peerId }) => {
+        if (!mine() || !this.me?.streaming) return;
         const m = this.members.get(peerId);
-        if (mine() && m && this.me?.streaming) this.fire('viewer-request', { viewerId: peerId, name: m.name, relay: false });
+        // Pedido chegou antes do "olá" da pessoa: guarda e atende quando ela aparecer.
+        if (!m) { this.earlyWatch.set(peerId, Date.now() + 30000); return; }
+        this.fire('viewer-request', { viewerId: peerId, name: m.name, relay: false });
       });
       a.unwatch.onMessage((_d, { peerId }) => { if (mine()) this.fire('viewer-left', { viewerId: peerId }); });
       a.ended.onMessage((_d, { peerId }) => {
@@ -295,6 +315,7 @@
       const hadRoom = Boolean(r || this.roomName);
       if (r) this.act?.bye.send({}).catch(() => {});
       this.pendingWatch.clear();
+      this.earlyWatch.clear();
       this.room = null;
       this.roomName = null;
       this.act = null;
