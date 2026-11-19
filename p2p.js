@@ -6,17 +6,22 @@
 
   const APP_ID = 'telao.llmartinsll04.github.io/v1';
   const ROOM_RE = /^[a-z0-9-]{1,24}$/;
-  // Retransmissor (TURN) num PC Lino da casa do Victor: usado só quando a conexão direta
-  // falha (redes com IP compartilhado, 4G). A senha fica pública no site de propósito; o
-  // servidor só repassa UDP, tem limite de velocidade e bloqueia a rede de casa.
-  // Atualizar aqui se o IP público mudar (tools/turn-3060.sh).
-  const TURN_HOST = '45.174.30.137';
-  const TURN_LAN = '192.168.0.12'; // mesmo servidor visto de dentro de casa
-  const TURN_AUTH = { username: 'telao', credential: 'yvlXKgt5wouu57Tcs79nAXNG' };
+  // Retransmissor (TURN): usado só quando a conexão direta falha (4G, CGNAT, rede de empresa).
+  // O antigo, no Linux da 3060, foi apagado em 18/11/2026, e a casa está atrás de CGNAT
+  // (roteador com IP 100.64.x): um retransmissor em casa não é alcançável pelos amigos.
+  // Precisa ser um serviço na internet; preencha TURN abaixo quando houver (ver LEIA-ME).
+  const TURN = []; // ex.: [{ urls: ['turn:host:3478?transport=udp', 'turns:host:443?transport=tcp'], username: '...', credential: '...' }]
   const ICE = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-    { urls: [`turn:${TURN_HOST}:3478?transport=udp`, `turn:${TURN_HOST}:3478?transport=tcp`], ...TURN_AUTH },
-    { urls: [`turn:${TURN_LAN}:3478?transport=udp`], ...TURN_AUTH },
+    ...TURN,
+  ];
+  // Servidores de encontro (Nostr). O sorteio padrão do Trystero caía em 5, um deles morto e
+  // três lentos (teste de 19/11/2026); amigos às vezes não se achavam. Lista fixa e testada:
+  // os 4 vivos do sorteio antigo (abas com a versão anterior continuam se achando) + 4 rápidos.
+  // Conferir de vez em quando: node tools/relays-check.mjs
+  const RELAYS = [
+    'wss://fanfares.nostr1.com', 'wss://nostr.liberty.fans', 'wss://no.str.cr', 'wss://relay.angor.io',
+    'wss://nostr-01.yakihonne.com', 'wss://nostr.azzamo.net', 'wss://nostr.sathoarder.com', 'wss://relay.primal.net',
   ];
   const SAVED_KEY = 'telao_salas';
   const MAX_SAVED = 20;
@@ -166,7 +171,7 @@
       const old = this.room;
       if (old) { this.room = null; await old.leave().catch(() => {}); }
       if (seq !== this.joinSeq) return null;
-      const r = joinRoom({ appId: APP_ID, identity: 'none', rtcConfig: { iceServers: ICE } }, this.roomName);
+      const r = joinRoom({ appId: APP_ID, identity: 'none', rtcConfig: { iceServers: ICE }, relayConfig: { urls: RELAYS } }, this.roomName);
       this.room = r;
 
       const mk = (n) => r.makeAction(n);
