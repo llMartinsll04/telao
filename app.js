@@ -738,6 +738,7 @@
       return;
     }
     state.watching.add(streamerId);
+    state.watchFailed?.delete(streamerId);
     state.focus = streamerId;
     socket.emit('watch', { streamerId, relay });
     if (!relay) checkWatch(streamerId, 0);
@@ -756,6 +757,8 @@
       const name = state.members.find((m) => m.id === streamerId)?.name || 'a pessoa';
       if (tries >= 2) {
         toast(`Não deu para conectar à tela de ${name}. Peça para ${name} parar e transmitir de novo, ou atualize a página.`);
+        (state.watchFailed ||= new Set()).add(streamerId);
+        renderAll();
         return;
       }
       if (tries === 0) toast(`Conectando à tela de ${name}…`);
@@ -1030,6 +1033,12 @@
       if (until < now) { state.resumeWatch.delete(id); continue; }
       if (live.has(id) && !state.watching.has(id)) { state.resumeWatch.delete(id); watch(id); }
     }
+    const pw = state.pendingWatch;
+    if (pw && (pw.until < now || pw.room !== room)) state.pendingWatch = null;
+    else if (pw) {
+      const alvo = members.find((m) => m.streaming && m.name === pw.name && m.id !== state.selfId);
+      if (alvo) { state.pendingWatch = null; if (!state.watching.has(alvo.id)) watch(alvo.id); }
+    }
     renderAll();
   });
 
@@ -1161,6 +1170,25 @@
           const t = document.createElement('span'); t.className = 'nm'; t.textContent = m.name;
           r.append(avatarEl(m, 'xs'), t);
           if (m.streaming) { const l = document.createElement('span'); l.className = 'live'; l.textContent = 'AO VIVO'; r.append(l); }
+          // Quem está ao vivo: clicar no nome abre a tela; botão direito mostra as opções.
+          const isSelf = name === state.room && m.id === state.selfId;
+          if (m.streaming && !isSelf) {
+            const here = name === state.room;
+            const on = here && state.watching.has(m.id);
+            r.classList.add('can-watch');
+            if (on) r.classList.add('watching');
+            r.tabIndex = 0;
+            r.setAttribute('role', 'button');
+            r.title = on ? `Você está assistindo ${m.name}` : `Assistir a tela de ${m.name}`;
+            const go = () => (here ? openStream(m.id) : watchInRoom(name, m.name));
+            r.addEventListener('click', go);
+            r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+            r.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              if (here) showStreamMenu(m.id, e.clientX, e.clientY);
+              else showMenu(e.clientX, e.clientY, [[`Assistir a tela de ${m.name}`, go]]);
+            });
+          }
           ul.append(r);
         }
         li.append(ul);
@@ -1273,6 +1301,19 @@
       v.dataset.for = m.id;
       v.autoplay = true; v.playsInline = true;
       tile.append(v);
+      // Enquanto a imagem não chega, explica em vez de mostrar só preto.
+      const wait = document.createElement('div');
+      wait.className = 'wait';
+      wait.textContent = state.watchFailed?.has(m.id) ? `Não conectou à tela de ${m.name}. A internet de um de vocês está bloqueando; tente outra rede.` : `Conectando à tela de ${m.name}…`;
+      wait.hidden = v.videoWidth > 0 && !v.paused;
+      tile.append(wait);
+      if (!v.dataset.waitEv) {
+        v.dataset.waitEv = '1';
+        const sync = () => { const w = v.closest('.tile')?.querySelector('.wait'); if (w) w.hidden = v.videoWidth > 0; };
+        v.addEventListener('playing', sync);
+        v.addEventListener('resize', sync);
+        v.addEventListener('emptied', sync);
+      }
       tools.append(volumeTool(m.id, v), focusButton(m.id), fullscreenButton(tile), stopWatchButton(m.id));
       const net = document.createElement('div');
       net.className = 'net';
@@ -1288,7 +1329,7 @@
       const b = document.createElement('button');
       b.className = 'btn watch';
       b.append(svgIcon(ICON_EYE), document.createTextNode('Assistir transmissão'));
-      b.addEventListener('click', () => watch(m.id));
+      b.addEventListener('click', (e) => { e.stopPropagation(); openStream(m.id); });
       c.append(avatarEl(m, 'lg'), b);
       tile.append(c);
     } else {
@@ -1303,8 +1344,75 @@
 
     tile.append(label);
     if (tools.childElementCount) tile.append(tools);
+    if (m.streaming && !isSelf) {
+      // Quadro inteiro clicável enquanto ainda não assiste; o nome também abre; botão direito = opções.
+      if (!state.watching.has(m.id)) {
+        tile.classList.add('can-watch');
+        tile.title = `Assistir a tela de ${m.name}`;
+        tile.addEventListener('click', () => openStream(m.id));
+      } else {
+        label.classList.add('can-watch');
+        label.title = state.focus === m.id ? m.name : `Ampliar a tela de ${m.name}`;
+        label.addEventListener('click', (e) => { e.stopPropagation(); openStream(m.id); });
+      }
+      tile.addEventListener('contextmenu', (e) => { e.preventDefault(); showStreamMenu(m.id, e.clientX, e.clientY); });
+    }
     return tile;
   }
+
+  // Assistir de um jeito só, venha de onde vier (lista, quadro, menu): abre e já amplia.
+  function openStream(id) {
+    el.sidebar.classList.remove('open');
+    if (!state.watching.has(id)) { watch(id); return; }
+    state.focus = id;
+    renderAll();
+  }
+
+  // Clicou em alguém ao vivo de outra sala: entra nela e abre a tela dessa pessoa ao chegar.
+  function watchInRoom(room, name) {
+    state.pendingWatch = { room, name, until: Date.now() + 30000 };
+    el.sidebar.classList.remove('open');
+    joinRoom(room);
+  }
+
+  function showStreamMenu(id, x, y) {
+    const m = state.members.find((p) => p.id === id);
+    if (!m) return;
+    const on = state.watching.has(id);
+    const items = [];
+    if (!on) items.push([`Assistir a tela de ${m.name}`, () => openStream(id)]);
+    else {
+      items.push([state.focus === id ? 'Ver todos' : 'Ampliar', () => { state.focus = state.focus === id ? null : id; renderAll(); }]);
+      items.push(['Tela cheia', () => { const t = el.grid.querySelector(`.tile[data-id="${CSS.escape(id)}"]`); if (t) toggleFullscreen(t); }]);
+      items.push(['Parar de assistir', () => unwatch(id)]);
+    }
+    showMenu(x, y, items);
+  }
+
+  function closeMenu() { document.querySelector('.ctx-menu')?.remove(); }
+
+  function showMenu(x, y, items) {
+    closeMenu();
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu';
+    menu.setAttribute('role', 'menu');
+    for (const [text, fn] of items) {
+      const b = document.createElement('button');
+      b.setAttribute('role', 'menuitem');
+      b.textContent = text;
+      b.addEventListener('click', (e) => { e.stopPropagation(); closeMenu(); fn(); });
+      menu.append(b);
+    }
+    document.body.append(menu);
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+    menu.querySelector('button')?.focus();
+  }
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('.ctx-menu')) closeMenu(); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+  window.addEventListener('resize', closeMenu);
+  window.addEventListener('blur', closeMenu);
 
   function toolButton(title, text, onClick) {
     const b = document.createElement('button');
